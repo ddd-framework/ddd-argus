@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.5.1
+
+- **A call's own timeout applies:** the timeout of a call's Argus class (`ArgusLoad::$timeout`) reaches its HTTP call;
+  the operation's constructor dropped it, so every call of a batch ran with the root load's timeout. A merged call
+  takes the longest timeout of its operations; a call without one keeps the batch's.
+- **Redis hits enter the memory cache only for memory levels:** a Redis hit is copied into APCu only for an entity of
+  `CACHELEVEL_MEMORY_AND_DB`, with that entity's TTL. Before, every hit was copied with the cache group's default
+  lifetime: `CACHELEVEL_DB` entries entered APCu, and an entry was served from memory far beyond its TTL.
+- **Duplicate cache lookups:** one lookup per cache key (the duplicate check read an undefined property); another
+  entity with the same key receives the same cached answer (before, the later operation replaced the earlier one and
+  the earlier entity never got its answer).
+
 ## 1.5.0
 
 - **External calls:** `ArgusApiOperation::EXTERNAL_CALL => true` in a load payload sends a call to a foreign host

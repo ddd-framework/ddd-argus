@@ -705,7 +705,9 @@ class ArgusApiOperations
                         $parametersAndCallId['body'] = $encodedBody;
                     }
                 }
-                $parametersAndCallId['timeout'] = $timeout;
+                // the call's own timeout when its Argus class declares one, else the batch's
+                $callTimeout = $this->findTimeoutOfCall($callId, $timeout);
+                $parametersAndCallId['timeout'] = $callTimeout;
                 // the configured headers first, the call's own headers over them
                 // an external call keeps only the configured Content-Type and Accept: an application's headers (an API
                 // key of its own services) never reach a foreign host
@@ -745,7 +747,7 @@ class ArgusApiOperations
                     $parametersAndCallId['allow_redirects'] = false;
                     $parametersAndCallId['debug'] = false;
                     $parametersAndCallId['stream'] = true;
-                    $parametersAndCallId['read_timeout'] = $timeout > 0 ? $timeout : 15;
+                    $parametersAndCallId['read_timeout'] = $callTimeout > 0 ? $callTimeout : 15;
                     $parametersAndCallId['on_headers'] = static function (ResponseInterface $response) use ($privateOperation): void {
                         $contentLength = $response->getHeaderLine('Content-Length');
                         if ($contentLength !== '' && (!ctype_digit($contentLength)
@@ -971,6 +973,20 @@ class ArgusApiOperations
             }
         }
         return null;
+    }
+
+    /** The timeout of a call: the longest own timeout of its operations (a merged call has several), else `$batchTimeout` */
+    protected function findTimeoutOfCall(string $callId, float $batchTimeout): float
+    {
+        $operations = $this->operationsById[$callId] ?? [];
+        $operations = is_array($operations) ? $operations : [$operations];
+        $callTimeout = 0.0;
+        foreach ($operations as $operation) {
+            if ($operation instanceof ArgusApiOperation && $operation->timeout > $callTimeout) {
+                $callTimeout = $operation->timeout;
+            }
+        }
+        return $callTimeout > 0 ? $callTimeout : $batchTimeout;
     }
 
     /**

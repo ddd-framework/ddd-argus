@@ -50,4 +50,24 @@ class ArgusDuplicateQuestionTest extends TestCase
         self::assertEquals($firstEntity->receivedResults, $secondEntity->receivedResults);
         self::assertCount(1, $argusApiOperations->duplicateOperationsById['same-question'], 'the same entity twice is one operation');
     }
+
+    public function testEachCallGetsTheTimeoutOfItsOwnOperationElseTheBatchs(): void
+    {
+        $argusApiOperations = new TransportCapturingArgusApiOperations(new Response(200, [], '{}'), new Response(200, [], '{}'));
+        $ownTimeoutEntity = new ArgusProbeEntity();
+        $batchTimeoutEntity = new ArgusProbeEntity();
+        $ownTimeoutOperation = $ownTimeoutEntity->createOperation('own', 'GET:/service/slow', [], 25.0);
+        $batchTimeoutOperation = $batchTimeoutEntity->createOperation('batch', 'GET:/service/fast');
+        $argusApiOperations->addOperation($ownTimeoutOperation);
+        $argusApiOperations->addOperation($batchTimeoutOperation);
+
+        $argusApiOperations->execute(timeout: 4.0);
+
+        $timeoutsByPath = [];
+        foreach ($argusApiOperations->sentRequests as $sentRequestEntry) {
+            $timeoutsByPath[$sentRequestEntry['request']->getUri()->getPath()] = $sentRequestEntry['options']['timeout'] ?? null;
+        }
+        self::assertEquals(25.0, $timeoutsByPath['/service/slow']);
+        self::assertEquals(4.0, $timeoutsByPath['/service/fast']);
+    }
 }

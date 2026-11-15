@@ -71,6 +71,12 @@ class ArgusApiOperation
     /** @var int Private transport: the most bytes read from the response */
     public int $privateResponseMaxBytes = 0;
 
+    /**
+     * The call's own timeout in seconds (its Argus class's `ArgusLoad` timeout); 0 = the batch's. Before 1.5.0 the
+     * constructor dropped it and every call of a batch ran with the timeout of the root load.
+     */
+    public float $timeout = 0;
+
     /** Whether this is an external call ({@see EXTERNAL_CALL}) */
     public bool $isExternalCall = false;
 
@@ -81,7 +87,9 @@ class ArgusApiOperation
         string $id,
         string $endpoint,
         #[\SensitiveParameter] array &$payload,
+        float $timeout = 0,
     ) {
+        $this->timeout = $timeout;
         if (isset($payload[self::PRIVATE_TRANSPORT])) {
             $transportOptions = $payload[self::PRIVATE_TRANSPORT];
             if (!is_array($transportOptions)

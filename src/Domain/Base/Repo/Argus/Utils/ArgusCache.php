@@ -32,9 +32,11 @@ class ArgusCache
      * On achce Systems as Redis we can load multiple keys at once and by by
      * this a significant reduction in roundtrip times can be achieved
      * @param $keys
+     * @param array<string, int> $memoryCopyTtlsByKey the keys whose Redis hit is copied into the memory cache, with
+     *        the TTL of the copy; a key not named here stays out of the memory cache
      * @return array
      */
-    public static function getMulti($keys): ?array
+    public static function getMulti($keys, array $memoryCopyTtlsByKey = []): ?array
     {
         $cacheRedis = InfrastructureCache::instance(InfrastructureCache::CACHE_GROUP_REDIS_SENTINEL);
         $argusCacheKeys = [];
@@ -66,7 +68,12 @@ class ArgusCache
             }
             $cacheKey = $argusCacheKeyToCacheKeyAllocation[$argusCacheKey];
             $cachedRedisMultiFinal[$cacheKey] = $cachedResult;
-            self::set($cacheKey, $cachedResult, null, self::CACHELEVEL_MEMORY);
+            // a Redis hit is copied into the memory cache only for an entity whose level includes memory, with that
+            // entity's TTL (before: every hit, with the cache group's default lifetime — a CACHELEVEL_DB entry entered
+            // APCu, and an entry with a short TTL was served far beyond it)
+            if (array_key_exists($cacheKey, $memoryCopyTtlsByKey)) {
+                self::set($cacheKey, $cachedResult, $memoryCopyTtlsByKey[$cacheKey], self::CACHELEVEL_MEMORY);
+            }
         }
 
         return $cachedRedisMultiFinal;

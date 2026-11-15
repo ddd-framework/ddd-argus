@@ -28,9 +28,9 @@ class ArgusProbeEntity extends ValueObject
         return $this->callKind;
     }
 
-    public function createOperation(string $id, string $endpoint, array $payload = []): ArgusApiOperation
+    public function createOperation(string $id, string $endpoint, array $payload = [], float $timeout = 0): ArgusApiOperation
     {
         $argusProbeEntity = $this;
-        return new ArgusApiOperation($argusProbeEntity, $id, $endpoint, $payload);
+        return new ArgusApiOperation($argusProbeEntity, $id, $endpoint, $payload, $timeout);
     }
 }
