@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.5.0
+
+- **External calls:** `ArgusApiOperation::EXTERNAL_CALL => true` in a load payload sends a call to a foreign host
+  with its own headers only — of the configured `requestSettings.headers` just `Content-Type` and `Accept` — and
+  without the tracking header, the debug flags, the default account's bearer token and a gateway token. The endpoint
+  carries its method and an absolute `http(s)` URL; such a call cannot be merged. Combines with the private transport.
+- **The same question twice:** a second entity of one batch whose operation has the id of one already added receives
+  the answer of the one call; before, it was dropped silently and stayed unloaded. The same entity added twice stays
+  one operation.
+- The bearer token of the default account is read through `static::` (a subclass can replace it).
+
 ## 1.4.0
 
 - **Gateway tokens:** `Base.Repo.argus.gateways` names gateways by `origin`, `tokenHeader` and `tokenEnvName`. The

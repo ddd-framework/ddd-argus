@@ -26,6 +26,19 @@ class ArgusApiOperation
      */
     public const string PRIVATE_TRANSPORT = '_argus_private_transport';
 
+    /**
+     * Payload key of an external call: `[ArgusApiOperation::EXTERNAL_CALL => true]` for a call to a host outside the
+     * application's services (a public API). Such a call is sent with its own headers only — of the configured
+     * `requestSettings.headers` just `Content-Type` and `Accept` —, without the tracking header, without the debug flags
+     * and without the default account's bearer token or a gateway token. Its endpoint carries the method and an absolute
+     * `http(s)` URL; it cannot be merged. The key is removed before the HTTP client receives the payload. Combine it with
+     * {@see PRIVATE_TRANSPORT} when the answer must stay out of the call log too.
+     */
+    public const string EXTERNAL_CALL = '_argus_external_call';
+
+    /** @var string[] The configured headers an external call keeps (lower case) */
+    public const array EXTERNAL_CALL_KEPT_CONFIGURED_HEADERS = ['content-type', 'accept'];
+
     public const string PRIVATE_RESPONSE_FORMAT_JSON = 'json';
     public const string PRIVATE_RESPONSE_FORMAT_BINARY = 'binary';
     public const int PRIVATE_RESPONSE_MAX_BYTES_LIMIT = 4194304;
@@ -58,6 +71,9 @@ class ArgusApiOperation
     /** @var int Private transport: the most bytes read from the response */
     public int $privateResponseMaxBytes = 0;
 
+    /** Whether this is an external call ({@see EXTERNAL_CALL}) */
+    public bool $isExternalCall = false;
+
     public int $mergelimit = 1;
 
     public function __construct(
@@ -85,6 +101,17 @@ class ArgusApiOperation
             $this->privateResponseFormat = $transportOptions['response'];
             $this->privateResponseMaxBytes = $transportOptions['max_response_bytes'];
             unset($payload[self::PRIVATE_TRANSPORT]);
+        }
+        if (array_key_exists(self::EXTERNAL_CALL, $payload)) {
+            if ($payload[self::EXTERNAL_CALL] !== true
+                || isset($payload['merge'])
+                || !ArgusApiOperations::isEndpointWithRequestMethod($endpoint)
+                || preg_match('#^(GET|PUT|POST|DELETE|PATCH):https?://#', $endpoint) !== 1
+            ) {
+                throw new InvalidArgumentException('Invalid external Argus call: needs `true`, an absolute http(s) endpoint with its method, and no merge');
+            }
+            $this->isExternalCall = true;
+            unset($payload[self::EXTERNAL_CALL]);
         }
         $this->entity = $entity;
         $this->id = $id;

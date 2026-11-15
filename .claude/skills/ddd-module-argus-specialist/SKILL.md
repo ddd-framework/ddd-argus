@@ -1,9 +1,9 @@
 ---
 name: ddd-module-argus-specialist
-description: "Create and use Argus external API repositories (ddd-argus): batched HTTP calls, multi-tier caching, CRUD, entity conversion, selective and recursive loading. Covers the ArgusLoad attribute, Base.Repo.argus config (baseUrl, requestSettings, auth bearer switch, appendDebugFlags, trackingHeader, origin-scoped gateway tokens (X-Gateway-Token); env fallback), header order (call headers win), METHOD-prefixed endpoints (others rejected before sending), timeouts (attribute, DEFAULT_ARGUS_TIMEOUT), cache TTLs, settle mode, per-operation status and headers, keeping non-2xx answers out of the cache, OpenAI response envelopes, private transport, split execution (send, advance, receive), call journal, ArgusCacheInFlightComputation, ArgusTransportRecording, the worker reset. Use when integrating an external API via Argus, configuring its base URL, headers or a gateway token, a load hangs without timeout, a failed answer got cached, one failed call fails the batch, or recording and replaying Argus calls."
+description: "Create and use Argus external API repositories (ddd-argus): batched HTTP calls, multi-tier caching, CRUD, entity conversion. Covers the ArgusLoad attribute, Base.Repo.argus config (baseUrl, requestSettings, auth, appendDebugFlags, trackingHeader, origin-scoped gateway tokens; env fallback), header order (call headers win), METHOD-prefixed endpoints (others rejected before sending), timeouts (attribute, DEFAULT_ARGUS_TIMEOUT), cache TTLs, settle mode, per-operation status and headers, keeping non-2xx answers out of the cache, OpenAI response envelopes, external calls to foreign hosts (no app headers, tracking or bearer), private transport, duplicate questions, split execution, call journal, ArgusCacheInFlightComputation, ArgusTransportRecording, the worker reset. Use when integrating an external API via Argus, configuring its base URL, headers or a gateway token, a load hangs without timeout, a failed answer got cached, one failed call fails the batch, or recording and replaying Argus calls."
 metadata:
   author: mgamadeus
-  version: "1.4.0"
+  version: "1.5.0"
   module: mgamadeus/ddd-argus
 ---
 
@@ -371,6 +371,30 @@ $calls = ArgusApiOperations::getExecutedArgusCalls();  // Retrieve log
 ```
 
 ## Advanced execution
+
+**External call** — a call to a foreign host (a public API such as Google) carries none of the application's own
+request data:
+
+```php
+return [
+    'body' => [...],
+    'headers' => ['Authorization' => 'Bearer ' . $googleAccessToken],
+    ArgusApiOperation::EXTERNAL_CALL => true,
+    // optional, keeps the call and its answer out of the call log too:
+    ArgusApiOperation::PRIVATE_TRANSPORT => ['response' => 'json', 'max_response_bytes' => 2_000_000],
+];
+// sent with the call's own headers and of the configured requestSettings.headers only Content-Type / Accept;
+// no tracking header, no debug flags, no default-account bearer, no gateway token. The endpoint must be
+// METHOD:https://…; cannot be merged. A transport recording still stores request and response BODIES (never headers):
+// a secret belongs into a header, never into the body of a recorded call.
+```
+
+**The same question twice** — two entities of one batch with the same operation id: the call is sent once and both
+receive its answer (before 1.5.0 the second was dropped and stayed unloaded). The same entity added twice is one call.
+
+**The cache holds the whole entity** — a cached entry is the entity serialized for persistence with its hide
+attributes ignored: `#[HideProperty]` does not keep a property out of the Argus cache. An entity loaded through Argus
+carries the question and the answer, never a credential.
 
 **Private transport** — for answers that must not be logged or followed (capabilities, image bytes):
 

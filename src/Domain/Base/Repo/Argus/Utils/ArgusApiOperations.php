@@ -54,7 +54,8 @@ use Throwable;
  * process, by the variable's name.
  *
  * Header order: the configured headers first, a call's own headers over them (a call's `Content-Type`, `x-api-key`,
- * `Authorization`, `Accept-Language` win).
+ * `Authorization`, `Accept-Language` win). An external call ({@see ArgusApiOperation::EXTERNAL_CALL}) keeps only the
+ * configured `Content-Type` and `Accept` and gets no tracking header, debug flags, default bearer or gateway token.
  *
  * Every endpoint carries its request method (`GET:/path`, `POST:https://…`); an endpoint without one is rejected with
  * an {@see InvalidArgumentException} before any request of the batch is sent.
@@ -92,6 +93,12 @@ class ArgusApiOperations
 
     /** @var array Operations by id; a merged call's id holds the list of operations merged into it */
     public array $operationsById;
+
+    /**
+     * @var array<string, ArgusApiOperation[]> Further operations of another entity with the id of an operation already
+     *      in the batch (the same question twice): they are sent once and receive the answer of the first
+     */
+    public array $duplicateOperationsById = [];
 
     /** @var array Endpoint groups with merge limits and pending operations */
     public array $operationsGroupedByEndpoints;
@@ -178,8 +185,13 @@ class ArgusApiOperations
      */
     public function addOperation(ArgusApiOperation &$operation)
     {
-        if (isset($this->operationsById[$operation->id])) // keep sure, we are not adding duplicates
-        {
+        if (isset($this->operationsById[$operation->id])) {
+            // the same question twice is sent once; another entity asking it receives the same answer (before, it
+            // was dropped and stayed unloaded without an error)
+            $existingOperation = $this->operationsById[$operation->id];
+            if (!$existingOperation instanceof ArgusApiOperation || $existingOperation->entity !== $operation->entity) {
+                $this->duplicateOperationsById[$operation->id][] = $operation;
+            }
             return;
         }
         $this->operations[] = $operation;
@@ -486,10 +498,12 @@ class ArgusApiOperations
                     if (!$operation instanceof ArgusApiOperation) {
                         continue;
                     }
-                    $operation->responseHeaders = $this->responseHeadersByCallId[$id] ?? null;
-                    $operation->responseStatusCode = $this->responseStatusCodesByCallId[$id] ?? null;
-                    $operation->rejectionReason = $this->rejectionReasonsByCallId[$id] ?? null;
-                    $operation->handleResponse($response, $operationType);
+                    foreach ([$operation, ...($this->duplicateOperationsById[$operation->id] ?? [])] as $answeredOperation) {
+                        $answeredOperation->responseHeaders = $this->responseHeadersByCallId[$id] ?? null;
+                        $answeredOperation->responseStatusCode = $this->responseStatusCodesByCallId[$id] ?? null;
+                        $answeredOperation->rejectionReason = $this->rejectionReasonsByCallId[$id] ?? null;
+                        $answeredOperation->handleResponse($response, $operationType);
+                    }
                 }
             }
         }
@@ -633,7 +647,7 @@ class ArgusApiOperations
         $microserviceBaseUrl = self::getMicroserviceBaseUrl();
         $appendDebugFlags = self::isAppendingDebugFlags();
         $trackingHeader = self::getTrackingHeader();
-        $accessToken = self::isSendingBearerTokenOfDefaultAccount() ? self::createBearerTokenOfDefaultAccount() : null;
+        $accessToken = static::isSendingBearerTokenOfDefaultAccount() ? static::createBearerTokenOfDefaultAccount() : null;
         $argusApiCallsInFlight = new ArgusApiCallsInFlight();
         $argusApiCallsInFlight->endpointToIdDelimiter = self::ENDPOINT_TO_ID_DELIMITER;
         $argusApiCallsInFlight->keepFulfilledCallsWhenOneIsRejected = $keepFulfilledCallsWhenOneIsRejected;
@@ -658,6 +672,7 @@ class ArgusApiOperations
             foreach ($parameters as $parametersAndCallId) {
                 $callId = (string)$parametersAndCallId['id'];
                 $privateOperation = $this->findPrivateOperation($callId);
+                $isExternalCall = $this->findExternalOperation($callId) !== null;
                 $parametersAndCallId['http_errors'] = false;
                 if (strpos($urlPathString, 'http') === false) {
                     // Remove trailing slash from base URL and leading slash from path to avoid double slashes
@@ -665,7 +680,7 @@ class ArgusApiOperations
                 } else {
                     $callUrl = $urlPathString;
                 }
-                if ($appendDebugFlags) {
+                if ($appendDebugFlags && !$isExternalCall) {
                     $separator = str_contains($callUrl, '?') ? '&' : '?';
                     $callUrl .= $separator . 'debug=1&errors_as_json=1';
                 }
@@ -692,12 +707,22 @@ class ArgusApiOperations
                 }
                 $parametersAndCallId['timeout'] = $timeout;
                 // the configured headers first, the call's own headers over them
+                // an external call keeps only the configured Content-Type and Accept: an application's headers (an API
+                // key of its own services) never reach a foreign host
+                $configuredHeaders = $callArgusRequestConfig['headers'] ?? [];
+                if ($isExternalCall) {
+                    $configuredHeaders = array_filter(
+                        is_array($configuredHeaders) ? $configuredHeaders : [],
+                        static fn (mixed $value, int|string $name): bool => in_array(strtolower((string)$name), ArgusApiOperation::EXTERNAL_CALL_KEPT_CONFIGURED_HEADERS, true),
+                        ARRAY_FILTER_USE_BOTH
+                    );
+                }
                 $parametersAndCallId['headers'] =
                     (isset($parametersAndCallId['headers']) && is_array($parametersAndCallId['headers']))
-                        ? array_merge($callArgusRequestConfig['headers'] ?? [], $parametersAndCallId['headers'])
-                        : ($callArgusRequestConfig['headers'] ?? []);
+                        ? array_merge($configuredHeaders, $parametersAndCallId['headers'])
+                        : $configuredHeaders;
 
-                if ($trackingHeader !== '') {
+                if ($trackingHeader !== '' && !$isExternalCall) {
                     $parametersAndCallId['headers'][$trackingHeader] =
                         'accountId=' . ($accountId ?? '') . ' ' .
                         'requestUID=' . $uid .
@@ -705,7 +730,7 @@ class ArgusApiOperations
                 }
 
                 // the default account's bearer token, unless the call sends an Authorization of its own
-                if ($accessToken !== null && !self::hasHeader($parametersAndCallId['headers'], 'Authorization')) {
+                if ($accessToken !== null && !$isExternalCall && !self::hasHeader($parametersAndCallId['headers'], 'Authorization')) {
                     $parametersAndCallId['headers']['Authorization'] = 'Bearer ' . $accessToken;
                 }
 
@@ -730,7 +755,9 @@ class ArgusApiOperations
                     };
                 }
 
-                $parametersAndCallId = self::applyGatewayToCall($gatewaysByName, $callUrl, $parametersAndCallId);
+                if (!$isExternalCall) {
+                    $parametersAndCallId = self::applyGatewayToCall($gatewaysByName, $callUrl, $parametersAndCallId);
+                }
 
                 if (self::$transportRecording !== null) {
                     // a recorded run matches calls by their kind (a request option for the recording's handler, never sent)
@@ -939,6 +966,26 @@ class ArgusApiOperations
             if ($operation instanceof ArgusApiOperation && $operation->privateResponseFormat !== null) {
                 if (count($operations) !== 1) {
                     throw new LogicException('Private Argus operations cannot be merged');
+                }
+                return $operation;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The external operation behind a call id ({@see ArgusApiOperation::EXTERNAL_CALL}), or null.
+     *
+     * @throws LogicException an external operation merged with others
+     */
+    protected function findExternalOperation(string $callId): ?ArgusApiOperation
+    {
+        $operations = $this->operationsById[$callId] ?? [];
+        $operations = is_array($operations) ? $operations : [$operations];
+        foreach ($operations as $operation) {
+            if ($operation instanceof ArgusApiOperation && $operation->isExternalCall) {
+                if (count($operations) !== 1) {
+                    throw new LogicException('External Argus calls cannot be merged');
                 }
                 return $operation;
             }
