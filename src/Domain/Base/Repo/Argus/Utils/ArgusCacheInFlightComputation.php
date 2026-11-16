@@ -142,8 +142,8 @@ class ArgusCacheInFlightComputation
     /** The marker on the shared level, null without one — the computing side is another process */
     protected function readPendingMarker(): ?ArgusCachePendingMarker
     {
-        // not ArgusCache::get(): its shared-level read re-writes the value under the cache group's default lifetime,
-        // which would keep an expired marker's key alive for far longer than announced
+        // read straight from the shared level (ArgusCache::get() before 1.5.2 re-wrote the value under the cache group's
+        // default lifetime, which would keep an expired marker's key alive for far longer than announced)
         return ArgusCachePendingMarker::fromStoredValue(
             InfrastructureCache::instance(InfrastructureCache::CACHE_GROUP_REDIS_SENTINEL)
                 ->get(ArgusCache::getCacheKey($this->getPendingMarkerCacheKey()))

@@ -104,12 +104,11 @@ class ArgusCache
                 );
 
                 if ($cachedRedis) {
+                    // a Redis hit is returned as it is: no copy written back without the entry's lifetime (before, a
+                    // hit was re-written into APCu — or, at CACHELEVEL_DB, into Redis itself — under the cache group's
+                    // default lifetime, which kept an entry alive far beyond its own TTL)
                     $cacheItem->cacheSource = self::CACHELEVEL_DB;
                     $cacheItem->data = $cachedRedis;
-                    if (!$cache) {
-                        $cache = InfrastructureCache::instance(InfrastructureCache::CACHE_GROUP_REDIS_SENTINEL);
-                    }
-                    $cache->set(self::getCacheKey($cacheKey), $cachedRedis);
 
                     return $cacheItem;
                 }

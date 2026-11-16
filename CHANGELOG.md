@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.2
+
+- `ArgusCache::get()` returns a Redis hit as it is. Before, it re-wrote the hit without the entry's lifetime: into APCu
+  at `CACHELEVEL_MEMORY_AND_DB`, into Redis itself at `CACHELEVEL_DB` — so an entry read through
+  `ArgusCacheInFlightComputation::hasCacheEntry()` was served or kept far beyond its TTL.
+
 ## 1.5.1
 
 - **A call's own timeout applies:** the timeout of a call's Argus class (`ArgusLoad::$timeout`) reaches its HTTP call;

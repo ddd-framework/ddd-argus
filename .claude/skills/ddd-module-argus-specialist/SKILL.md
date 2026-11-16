@@ -3,7 +3,7 @@ name: ddd-module-argus-specialist
 description: "Create and use Argus external API repositories (ddd-argus): batched HTTP calls, multi-tier caching, CRUD, entity conversion. Covers the ArgusLoad attribute, Base.Repo.argus config (baseUrl, requestSettings, auth, appendDebugFlags, trackingHeader, origin-scoped gateway tokens; env fallback), header order (call headers win), METHOD-prefixed endpoints (others rejected before sending), timeouts (attribute, DEFAULT_ARGUS_TIMEOUT), cache TTLs, settle mode, per-operation status and headers, keeping non-2xx answers out of the cache, OpenAI response envelopes, external calls to foreign hosts (no app headers, tracking or bearer), private transport, duplicate questions, split execution, call journal, ArgusCacheInFlightComputation, ArgusTransportRecording, the worker reset. Use when integrating an external API via Argus, configuring its base URL, headers or a gateway token, a load hangs without timeout, a failed answer got cached, one failed call fails the batch, or recording and replaying Argus calls."
 metadata:
   author: mgamadeus
-  version: "1.5.1"
+  version: "1.5.2"
   module: mgamadeus/ddd-argus
 ---
 
