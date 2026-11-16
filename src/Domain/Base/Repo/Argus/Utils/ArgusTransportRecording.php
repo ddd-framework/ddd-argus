@@ -67,13 +67,17 @@ class ArgusTransportRecording
     public ?int $turnOrdinal = null;
 
     /**
-     * Rewrites a recorded answer to a call made OUTSIDE a tool before it is handed over: (answer body, recorded
-     * position) → body — e.g. to translate ids the recording run created into the replay's ids. Null: answers are
-     * played byte for byte.
+     * Rewrites a recorded answer to a call made OUTSIDE a tool before it is handed over
+     * ({@see ArgusTransportRecordingPlayedAnswerTranslatorInterface::translatePlayedAnswerBody()}) — e.g. to translate
+     * ids the recording run created into the replay's ids. Null: answers are played byte for byte.
      *
-     * @var (Closure(string, int): string)|null
+     * A Closure `(answer body, recorded position) → body` is still accepted and is DEPRECATED: implement
+     * {@see ArgusTransportRecordingPlayedAnswerTranslatorInterface} instead; the Closure form is removed in the next
+     * major version.
+     *
+     * @var ArgusTransportRecordingPlayedAnswerTranslatorInterface|(Closure(string, int): string)|null
      */
-    public ?Closure $playedAnswerTranslator = null;
+    public ArgusTransportRecordingPlayedAnswerTranslatorInterface|Closure|null $playedAnswerTranslator = null;
 
     /**
      * Rows the replay created under other ids than the recording run: a call is matched in the recording's ids and
@@ -304,7 +308,7 @@ class ArgusTransportRecording
         }
         $responseBody = $argusTransportRecordingEntry->responseBody;
         if ($this->playedAnswerTranslator !== null && !$argusTransportRecordingEntry->duringTool) {
-            $responseBody = ($this->playedAnswerTranslator)($responseBody, $answerPosition);
+            $responseBody = $this->translatePlayedAnswerBody($responseBody, $answerPosition);
         }
         if ($this->idCounterparts !== null) {
             $responseBody = $this->idCounterparts->translateRecordedTextToReplay($responseBody);
@@ -314,6 +318,22 @@ class ArgusTransportRecording
             $argusTransportRecordingEntry->responseHeaders,
             $responseBody
         ));
+    }
+
+    /**
+     * A recorded answer body through {@see $playedAnswerTranslator}: the interface's method, or — the deprecated form —
+     * the Closure called with the same two arguments.
+     *
+     * @param string $responseBody The recorded answer body
+     * @param int $recordedPosition The recorded call's position in the recording
+     * @return string The answer body as the replay receives it
+     */
+    protected function translatePlayedAnswerBody(string $responseBody, int $recordedPosition): string
+    {
+        if ($this->playedAnswerTranslator instanceof ArgusTransportRecordingPlayedAnswerTranslatorInterface) {
+            return $this->playedAnswerTranslator->translatePlayedAnswerBody($responseBody, $recordedPosition);
+        }
+        return (string)($this->playedAnswerTranslator)($responseBody, $recordedPosition);
     }
 
     /**

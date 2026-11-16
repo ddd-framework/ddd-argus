@@ -9,6 +9,7 @@ use DDD\Domain\Base\Repo\Argus\Utils\ArgusTransportRecording;
 use DDD\Domain\Base\Repo\Argus\Utils\RecordedRunIdCounterparts;
 use DDD\Tests\Argus\Support\ArgusConfigOverride;
 use DDD\Tests\Argus\Support\ArgusProbeEntity;
+use DDD\Tests\Argus\Support\PlayedAnswerMarkingTranslator;
 use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\Psr7\Request;
@@ -81,6 +82,61 @@ class ArgusTransportRecordingTest extends TestCase
         $argusApiOperations->execute(keepFulfilledCallsWhenOneIsRejected: true);
 
         self::assertStringContainsString('no recorded answer left', (string)$argusApiOperation->rejectionReason);
+    }
+
+    /** @return array<int, mixed> the stored form of a recording of the two calls (outside or inside a tool) */
+    protected function recordTwoCalls(bool $insideToolExecution): array
+    {
+        $recordingTransport = ArgusTransportRecording::forRecording(new MockHandler([
+            new Response(200, ['Content-Type' => 'application/json'], '{"status":"OK","data":{"answer":"first"}}'),
+            new Response(200, ['Content-Type' => 'application/json'], '{"status":"OK","data":{"answer":"second"}}'),
+        ]));
+        $recordingTransport->insideToolExecution = $insideToolExecution;
+        ArgusApiOperations::$transportRecording = $recordingTransport;
+        $this->executeTwoCalls();
+        return json_decode((string)json_encode($recordingTransport->toStorageArray()), true);
+    }
+
+    public function testThePlayedAnswerTranslatorRewritesTheAnswersOfCallsOutsideATool(): void
+    {
+        $playingTransport = ArgusTransportRecording::forPlaying($this->recordTwoCalls(false));
+        $playedAnswerMarkingTranslator = new PlayedAnswerMarkingTranslator();
+        $playingTransport->playedAnswerTranslator = $playedAnswerMarkingTranslator;
+        ArgusApiOperations::$transportRecording = $playingTransport;
+        [$firstProbeEntity, $secondProbeEntity] = $this->executeTwoCalls();
+
+        self::assertSame('translated', $firstProbeEntity->receivedResults->data->answer);
+        self::assertSame('second', $secondProbeEntity->receivedResults->data->answer);
+        self::assertSame([0, 1], $playedAnswerMarkingTranslator->translatedPositions);
+    }
+
+    public function testThePlayedAnswerTranslatorLeavesTheAnswersOfCallsInsideAToolAlone(): void
+    {
+        $playingTransport = ArgusTransportRecording::forPlayingToolCalls($this->recordTwoCalls(true));
+        $playingTransport->insideToolExecution = true;
+        $playedAnswerMarkingTranslator = new PlayedAnswerMarkingTranslator();
+        $playingTransport->playedAnswerTranslator = $playedAnswerMarkingTranslator;
+        ArgusApiOperations::$transportRecording = $playingTransport;
+        [$firstProbeEntity] = $this->executeTwoCalls();
+
+        self::assertSame('first', $firstProbeEntity->receivedResults->data->answer);
+        self::assertSame([], $playedAnswerMarkingTranslator->translatedPositions);
+    }
+
+    public function testADeprecatedClosureTranslatorStillRewritesTheAnswers(): void
+    {
+        $playingTransport = ArgusTransportRecording::forPlaying($this->recordTwoCalls(false));
+        $translatedPositions = [];
+        $playingTransport->playedAnswerTranslator = static function (string $responseBody, int $recordedPosition) use (&$translatedPositions): string {
+            $translatedPositions[] = $recordedPosition;
+            return str_replace('"first"', '"translated by a closure"', $responseBody);
+        };
+        ArgusApiOperations::$transportRecording = $playingTransport;
+        [$firstProbeEntity, $secondProbeEntity] = $this->executeTwoCalls();
+
+        self::assertSame('translated by a closure', $firstProbeEntity->receivedResults->data->answer);
+        self::assertSame('second', $secondProbeEntity->receivedResults->data->answer);
+        self::assertSame([0, 1], $translatedPositions);
     }
 
     public function testIdCounterpartsTranslateBetweenReplayAndRecording(): void

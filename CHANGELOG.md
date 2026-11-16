@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.0
+
+- `ArgusTransportRecording::$playedAnswerTranslator` takes an `ArgusTransportRecordingPlayedAnswerTranslatorInterface`
+  (method `translatePlayedAnswerBody(string $responseBody, int $recordedPosition): string`). Applied as before: to the
+  recorded answers of calls made outside a tool, before the id counterparts. A Closure
+  `(answer body, recorded position) → body` is still accepted and deprecated; it is removed in the next major version.
+
 ## 1.5.2
 
 - `ArgusCache::get()` returns a Redis hit as it is. Before, it re-wrote the hit without the entry's lifetime: into APCu

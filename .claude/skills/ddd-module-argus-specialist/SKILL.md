@@ -3,7 +3,7 @@ name: ddd-module-argus-specialist
 description: "Create and use Argus external API repositories (ddd-argus): batched HTTP calls, multi-tier caching, CRUD, entity conversion. Covers the ArgusLoad attribute, Base.Repo.argus config (baseUrl, requestSettings, auth, appendDebugFlags, trackingHeader, origin-scoped gateway tokens; env fallback), header order (call headers win), METHOD-prefixed endpoints (others rejected before sending), timeouts (attribute, DEFAULT_ARGUS_TIMEOUT), cache TTLs, settle mode, per-operation status and headers, keeping non-2xx answers out of the cache, OpenAI response envelopes, external calls to foreign hosts (no app headers, tracking or bearer), private transport, duplicate questions, split execution, call journal, ArgusCacheInFlightComputation, ArgusTransportRecording, the worker reset. Use when integrating an external API via Argus, configuring its base URL, headers or a gateway token, a load hangs without timeout, a failed answer got cached, one failed call fails the batch, or recording and replaying Argus calls."
 metadata:
   author: mgamadeus
-  version: "1.5.2"
+  version: "1.6.0"
   module: mgamadeus/ddd-argus
 ---
 
@@ -428,6 +428,10 @@ start/end) and `clearCallJournal()`. `getSentCallCountsByEndpoint()` counts ever
 call (`toStorageArray()` to store); `forPlaying($stored)`, `forPlayingToolCalls()`, `forPlayingWithLiveTools()` answer
 from it (`unusedEntries()`, `buildChangedRequestBodies()`, `playedRequests`). `RecordedRunIdCounterparts` maps replay
 ids to recorded ids. Calls are matched by kind: an Argus class may declare `public function getArgusCallKind(): ?string`.
+A player rewrites the recorded answers of calls made outside a tool through `$playedAnswerTranslator`, an object
+implementing `ArgusTransportRecordingPlayedAnswerTranslatorInterface` (`translatePlayedAnswerBody($responseBody,
+$recordedPosition): string`), applied before the id counterparts; a Closure there is deprecated. Recording runs of the
+application's own code (dispatches, database writes): `ddd-message-handler-specialist` › recorded runs.
 
 **Optional entity methods** (read by the executor when present — declare them on the class, not in a trait that is
 combined with `ArgusTrait`, or the two traits collide): `getArgusCallKind(): ?string`,
